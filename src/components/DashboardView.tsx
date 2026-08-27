@@ -120,10 +120,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const handleConfirmDelete = async () => {
     if (!deleteTargetId) return;
+    const targetId = deleteTargetId;
+    setDeleteTargetId(null);
     try {
-      await api.deleteJournal(deleteTargetId);
-      setJournals(prev => prev.filter(j => j.id !== deleteTargetId));
-      setDeleteTargetId(null);
+      await api.deleteJournal(targetId);
+      setJournals(prev => prev.filter(j => j.id !== targetId));
       // reload stats in background
       api.getStats().then(setStats).catch(() => {});
     } catch (err: any) {

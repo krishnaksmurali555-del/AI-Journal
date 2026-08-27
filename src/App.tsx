@@ -14,6 +14,8 @@ export const App: React.FC = () => {
   const { user, loading } = useAuth();
   const [currentJournalId, setCurrentJournalId] = useState<string | null>(null);
   const [writingStreak, setWritingStreak] = useState<number>(0);
+  const [creatingJournal, setCreatingJournal] = useState(false);
+  const [appError, setAppError] = useState<string | null>(null);
 
   // Modals state
   const [askModalOpen, setAskModalOpen] = useState(false);
@@ -44,6 +46,8 @@ export const App: React.FC = () => {
 
   const handleCreateNewJournal = async () => {
     try {
+      setCreatingJournal(true);
+      setAppError(null);
       const newEntry = await api.createJournal({
         title: 'New Journal Entry',
         content: '',
@@ -51,8 +55,11 @@ export const App: React.FC = () => {
         mood: '',
       });
       setCurrentJournalId(newEntry.id);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to create new journal:', err);
+      setAppError(err.message || 'Failed to create journal entry.');
+    } finally {
+      setCreatingJournal(false);
     }
   };
 
@@ -66,6 +73,21 @@ export const App: React.FC = () => {
         onOpenStats={() => setStatsModalOpen(true)}
         writingStreak={writingStreak}
       />
+
+      {/* Global Error Banner */}
+      {appError && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 w-full">
+          <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center justify-between">
+            <span className="font-medium">{appError}</span>
+            <button
+              onClick={() => setAppError(null)}
+              className="ml-3 font-semibold text-rose-500 hover:text-rose-700 cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main view router */}
       <main className="flex-1">

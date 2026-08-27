@@ -174,13 +174,21 @@ export const api = {
     };
 
     const cleanData = sanitizeFirestorePayload(rawData);
-    const docRef = await addDoc(collection(db, 'users', uid, 'journals'), cleanData);
-
-    return {
-      id: docRef.id,
-      ...rawData,
-      messages: [],
-    };
+    try {
+      const docRef = await addDoc(collection(db, 'users', uid, 'journals'), cleanData);
+      return {
+        id: docRef.id,
+        ...rawData,
+        messages: [],
+      };
+    } catch (err: any) {
+      if (err.code === 'permission-denied') {
+        throw new Error(
+          `Firestore permission denied. Please ensure Firestore Security Rules in your Firebase Console (ai-journal-c2e5f) allow read and write access for authenticated users.`
+        );
+      }
+      throw err;
+    }
   },
 
   // 4. Update journal entry
@@ -200,9 +208,17 @@ export const api = {
     delete updateFields.messages;
 
     const cleanData = sanitizeFirestorePayload(updateFields);
-    await updateDoc(journalRef, cleanData);
-
-    return await this.getJournal(journalId);
+    try {
+      await updateDoc(journalRef, cleanData);
+      return await this.getJournal(journalId);
+    } catch (err: any) {
+      if (err.code === 'permission-denied') {
+        throw new Error(
+          `Firestore permission denied. Please ensure Firestore Security Rules in your Firebase Console allow updates for user ${uid}.`
+        );
+      }
+      throw err;
+    }
   },
 
   // 5. Delete journal entry
@@ -210,14 +226,27 @@ export const api = {
     const uid = getUserId();
     const journalRef = doc(db, 'users', uid, 'journals', journalId);
 
-    // Delete subcollection messages first
-    const messagesRef = collection(db, 'users', uid, 'journals', journalId, 'messages');
-    const messagesSnap = await getDocs(messagesRef);
-    for (const msgDoc of messagesSnap.docs) {
-      await deleteDoc(msgDoc.ref);
+    // Delete subcollection messages first if present
+    try {
+      const messagesRef = collection(db, 'users', uid, 'journals', journalId, 'messages');
+      const messagesSnap = await getDocs(messagesRef);
+      for (const msgDoc of messagesSnap.docs) {
+        await deleteDoc(msgDoc.ref).catch(() => {});
+      }
+    } catch (err) {
+      console.warn('Subcollection messages clean-up skipped:', err);
     }
 
-    await deleteDoc(journalRef);
+    try {
+      await deleteDoc(journalRef);
+    } catch (err: any) {
+      if (err.code === 'permission-denied') {
+        throw new Error(
+          `Firestore permission denied while deleting. Please check Firestore Rules in Firebase Console for project ai-journal-c2e5f.`
+        );
+      }
+      throw err;
+    }
   },
 
   // 6. Send message to Gemini for this journal
