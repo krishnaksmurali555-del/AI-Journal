@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { 
   User, 
   auth, 
+  firebaseConfig,
   googleProvider, 
   signInWithPopup, 
   signOut, 
@@ -51,7 +52,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setError('Sign-in cancelled.');
       } else if (err.code === 'auth/unauthorized-domain') {
         setError(
-          `Unauthorized Domain (${window.location.hostname}): Add this domain to your Firebase Console -> Authentication -> Settings -> Authorized domains.`
+          `Unauthorized Domain (${window.location.hostname}): This domain is not authorized in Firebase Project "${firebaseConfig.projectId}" (${firebaseConfig.authDomain}). Add "${window.location.hostname}" to Firebase Console -> Authentication -> Settings -> Authorized domains in project "${firebaseConfig.projectId}".`
         );
       } else {
         setError(err.message || 'Failed to sign in with Google.');

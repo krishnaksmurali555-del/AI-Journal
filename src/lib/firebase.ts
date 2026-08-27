@@ -10,7 +10,11 @@ import {
 import { getFirestore } from 'firebase/firestore';
 import rawFirebaseConfig from '../../firebase-applet-config.json';
 
-const firebaseConfig = {
+const hasViteEnv = Boolean(import.meta.env.VITE_FIREBASE_API_KEY || import.meta.env.VITE_FIREBASE_PROJECT_ID);
+
+export const configSource = hasViteEnv ? 'VITE_ENVIRONMENT_VARIABLES' : 'FIREBASE_APPLET_CONFIG_JSON';
+
+export const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || rawFirebaseConfig.apiKey,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || rawFirebaseConfig.authDomain,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || rawFirebaseConfig.projectId,
@@ -19,12 +23,22 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID || rawFirebaseConfig.appId,
 };
 
+if (typeof window !== 'undefined') {
+  console.info(`[Firebase Initialized] Source: ${configSource} | Project ID: ${firebaseConfig.projectId} | Auth Domain: ${firebaseConfig.authDomain}`);
+}
+
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
-export const db = rawFirebaseConfig.firestoreDatabaseId 
-  ? getFirestore(app, rawFirebaseConfig.firestoreDatabaseId) 
+
+const databaseId = import.meta.env.VITE_FIREBASE_DATABASE_ID || rawFirebaseConfig.firestoreDatabaseId;
+export const db = databaseId && databaseId !== '(default)'
+  ? getFirestore(app, databaseId) 
   : getFirestore(app);
+
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({
+  prompt: 'select_account',
+});
 
 export async function getCurrentUserToken(): Promise<string | null> {
   const currentUser = auth.currentUser;
