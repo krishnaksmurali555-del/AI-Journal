@@ -12,6 +12,8 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Support both /api/... and direct /... routing when deployed on Vercel
 app.use('/api', apiRouter);
+app.use(apiRouter);
 
 export default app;
