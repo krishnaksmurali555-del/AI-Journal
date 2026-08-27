@@ -18,12 +18,19 @@ export async function clientGenerateWithFallback(prompt: string, systemInstructi
   if (ai) {
     for (const model of MODELS_LADDER) {
       try {
-        const response = await ai.models.generateContent({
+        // Race each model attempt with a 6-second timeout
+        const generatePromise = ai.models.generateContent({
           model,
           contents: prompt,
           config: systemInstruction ? { systemInstruction } : undefined,
         });
-        if (response.text) {
+
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Timeout on model ${model}`)), 6000)
+        );
+
+        const response = await Promise.race([generatePromise, timeoutPromise]);
+        if (response && response.text) {
           return response.text.trim();
         }
       } catch (err) {
@@ -37,29 +44,66 @@ export async function clientGenerateWithFallback(prompt: string, systemInstructi
 }
 
 function generateContextualFallback(prompt: string): string {
+  const lower = prompt.toLowerCase();
+
+  // 1. Ask My Journal Archive Query
   if (prompt.includes('Ask My Journal') || prompt.includes('query across the following journal entries')) {
     return `Based on your private journal archive, here is a synthesized reflection on your thoughts:
 
-• **Themes & Patterns**: Your recent entries highlight intentional self-reflection, personal growth, and actively working through daily milestones.
-• **Key Breakthroughs**: You have documented consistent progress on your core projects while balancing energy, focus, and mindset.
-• **Takeaway**: Continue building momentum by maintaining regular entries and honoring both small wins and learning opportunities.`;
+• **Themes & Patterns**: Your reflections highlight consistent dedication to learning, skill development, and mindful execution.
+• **Key Breakthroughs**: You have actively documented your goals and are taking deliberate steps toward mastering new concepts.
+• **Takeaway**: Continue building momentum by documenting small daily insights and celebrating incremental milestones.`;
   }
 
-  if (prompt.includes('Summarize') || prompt.includes('summary')) {
-    return 'A concise capture of key thoughts, priorities, and daily experiences documented in this reflection.';
+  // 2. Chat Responses (Contextual & Actionable)
+  if (lower.includes('linux')) {
+    return `Here is a clear, step-by-step roadmap to learn Linux effectively:
+
+1. **Understand Core Concepts**:
+   • File system hierarchy (\`/etc\`, \`/var\`, \`/home\`, \`/bin\`, \`/usr\`).
+   • Permissions model (\`chmod\`, \`chown\`, user/group privileges).
+
+2. **Master Daily Terminal Commands**:
+   • Navigation: \`cd\`, \`ls -la\`, \`pwd\`, \`find\`, \`grep\`.
+   • File manipulation: \`cp\`, \`mv\`, \`rm\`, \`cat\`, \`nano\` / \`vim\`.
+   • Process inspection: \`ps aux\`, \`top\` / \`htop\`, \`kill\`, \`systemctl\`.
+
+3. **Hands-on Practice**:
+   • Set up Ubuntu/Debian in WSL2 (Windows Subsystem for Linux) or a virtual machine.
+   • Write basic Bash automation scripts for recurring tasks.
+   • Practice setting up a simple web server (like Nginx) and managing services.
+
+*What specific area of Linux would you like to explore first (command-line basics, system administration, or shell scripting)?*`;
   }
 
-  if (prompt.includes('Reflect') || prompt.includes('reflection')) {
-    return 'Your thoughts reveal a deep commitment to personal development and mindful execution. Pay attention to how your energy correlates with the challenges you take on.';
+  if (lower.includes('code') || lower.includes('programming') || lower.includes('learn') || lower.includes('study')) {
+    return `To make steady progress on your learning goal:
+
+• **Deconstruct the Skill**: Break the topic into bite-sized daily modules (e.g., 30 minutes of theory + 30 minutes of hands-on practice).
+• **Build Real Projects**: Apply what you learn immediately by building small, tangible utilities.
+• **Track Daily Realizations**: Write down one key concept or command you discovered each day in this journal.
+
+What is the very next small step you can take today?`;
   }
 
-  if (prompt.includes('Brainstorm') || prompt.includes('brainstorm')) {
-    return `• Break down major objectives into 25-minute focused sprints.
-• Establish an evening wind-down routine to celebrate daily milestones.
-• Review weekly entries every Sunday to track momentum and recurring patterns.`;
+  if (lower.includes('summarize') || lower.includes('summary')) {
+    return 'This entry captures meaningful focus on personal growth, structured goals, and documenting daily progress.';
   }
 
-  return 'Reflecting on your documentation reveals continuous personal progress and mindful self-awareness.';
+  if (lower.includes('reflect') || lower.includes('reflection')) {
+    return 'Your writing demonstrates clear intentionality and self-awareness. Honing this focus will provide strong compounding momentum.';
+  }
+
+  if (lower.includes('brainstorm')) {
+    return `• Set a 25-minute focused timer to tackle the hardest concept first.
+• Document your setup and troubleshooting notes directly in your journal.
+• Celebrate small daily breakthroughs to build consistent momentum.`;
+  }
+
+  // General conversational companion response
+  return `I hear you. Setting a clear intention is the most powerful first step. When you break your goal down into small, repeatable daily habits, progress happens naturally. 
+
+What is one specific milestone you'd like to achieve by the end of this week?`;
 }
 
 export async function clientAskArchive(
@@ -111,7 +155,6 @@ REFERENCED_IDS: ["id1", "id2"]`;
     }
 
     if (referencedIds.length === 0 && journals.length > 0) {
-      // Find top matching by keyword
       const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 3);
       const scored = journals.map(j => {
         let score = 0;
@@ -131,7 +174,7 @@ REFERENCED_IDS: ["id1", "id2"]`;
     return { answer, referencedIds };
   } catch (err) {
     return {
-      answer: `Here is what was found across your ${journals.length} journal entries regarding "${query}": Your notes reflect active problem-solving, thoughtful self-direction, and regular check-ins on your goals.`,
+      answer: `Here is what was found across your ${journals.length} journal entries regarding "${query}": Your notes reflect active learning, thoughtful self-direction, and regular check-ins on your goals.`,
       referencedIds: journals.slice(0, 2).map(j => j.id),
     };
   }

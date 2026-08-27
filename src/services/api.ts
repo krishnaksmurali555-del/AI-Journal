@@ -4,7 +4,6 @@ import {
   getDocs,
   getDoc,
   setDoc,
-  updateDoc,
   deleteDoc,
   query,
   orderBy,
@@ -66,6 +65,16 @@ function saveLocalMessages(journalId: string, messages: JournalMessage[]) {
   }
 }
 
+// Background firestore sync with timeout safeguard
+async function safeFirestoreSync(syncFn: () => Promise<any>, description: string = 'Firestore Sync') {
+  try {
+    const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 2000));
+    await Promise.race([syncFn(), timeoutPromise]);
+  } catch (err) {
+    console.warn(`[Background ${description}]`, err);
+  }
+}
+
 async function fetchWithAuth<T>(url: string, options: RequestInit = {}): Promise<T> {
   const token = await getCurrentUserToken();
   if (!token) {
@@ -78,19 +87,30 @@ async function fetchWithAuth<T>(url: string, options: RequestInit = {}): Promise
     ...options.headers,
   };
 
-  const response = await fetch(url, {
-    ...options,
-    headers,
-  });
+  // Add 4-second timeout to prevent any hanging serverless request
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 4000);
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    const error = new Error(errorData.error || `Request failed with status ${response.status}`);
-    (error as any).status = response.status;
-    throw error;
+  try {
+    const response = await fetch(url, {
+      ...options,
+      headers,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const error = new Error(errorData.error || `Request failed with status ${response.status}`);
+      (error as any).status = response.status;
+      throw error;
+    }
+
+    return (await response.json()) as T;
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    throw err;
   }
-
-  return (await response.json()) as T;
 }
 
 export const api = {
@@ -101,9 +121,14 @@ export const api = {
 
     try {
       const journalsRef = collection(db, 'users', uid, 'journals');
-      const qSnap = await getDocs(query(journalsRef, orderBy('updatedAt', 'desc')));
+      const fetchPromise = getDocs(query(journalsRef, orderBy('updatedAt', 'desc')));
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Firestore read timeout')), 2500)
+      );
 
-      journals = qSnap.docs.map((docSnap) => {
+      const qSnap: any = await Promise.race([fetchPromise, timeoutPromise]);
+
+      journals = qSnap.docs.map((docSnap: any) => {
         const data = docSnap.data();
         const content = data.content || '';
         return {
@@ -129,7 +154,7 @@ export const api = {
       // Update local storage backup
       saveLocalJournals(uid, journals);
     } catch (err: any) {
-      console.warn('Firestore read fallback to localStorage:', err);
+      console.warn('Using local journal cache:', err?.message || err);
       journals = getLocalJournals(uid);
     }
 
@@ -163,7 +188,12 @@ export const api = {
 
     try {
       const journalRef = doc(db, 'users', uid, 'journals', journalId);
-      const snap = await getDoc(journalRef);
+      const snapPromise = getDoc(journalRef);
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Firestore getDoc timeout')), 2000)
+      );
+
+      const snap: any = await Promise.race([snapPromise, timeoutPromise]);
 
       if (snap.exists()) {
         const data = snap.data();
@@ -206,7 +236,7 @@ export const api = {
         };
       }
     } catch (err) {
-      console.warn('Firestore getJournal fallback to localStorage:', err);
+      console.warn('Fallback to local journal storage:', err);
     }
 
     if (!entry) {
@@ -233,7 +263,6 @@ export const api = {
     const now = new Date().toISOString();
     const content = payload.content || '';
     
-    // Generate unique ID
     const newId = 'j_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
     
     const newEntry: JournalEntry = {
@@ -255,12 +284,12 @@ export const api = {
       messages: [],
     };
 
-    // 1. Immediately write to local cache so clicking 'New Entry' never fails or stalls
+    // 1. Immediately write to local cache
     const localList = getLocalJournals(uid);
     saveLocalJournals(uid, [newEntry, ...localList]);
 
-    // 2. Persist to Firestore in background / async
-    try {
+    // 2. Persist to Firestore asynchronously
+    safeFirestoreSync(async () => {
       const journalDocRef = doc(db, 'users', uid, 'journals', newId);
       const cleanData = sanitizeFirestorePayload({
         userId: newEntry.userId,
@@ -279,14 +308,12 @@ export const api = {
         updatedAt: newEntry.updatedAt,
       });
       await setDoc(journalDocRef, cleanData);
-    } catch (err: any) {
-      console.warn('Firestore save queued in local storage:', err);
-    }
+    }, 'Create Journal');
 
     return newEntry;
   },
 
-  // 4. Update journal entry
+  // 4. Update journal entry (Instant response, non-blocking cloud write)
   async updateJournal(journalId: string, payload: Partial<JournalEntry>): Promise<JournalEntry> {
     const uid = getUserId();
     const now = new Date().toISOString();
@@ -324,8 +351,8 @@ export const api = {
       saveLocalJournals(uid, [updatedEntry, ...localList]);
     }
 
-    // 2. Persist to Firestore
-    try {
+    // 2. Persist to Firestore safely in background
+    safeFirestoreSync(async () => {
       const journalRef = doc(db, 'users', uid, 'journals', journalId);
       const updateFields: any = {
         ...payload,
@@ -339,9 +366,7 @@ export const api = {
 
       const cleanData = sanitizeFirestorePayload(updateFields);
       await setDoc(journalRef, cleanData, { merge: true });
-    } catch (err) {
-      console.warn('Firestore update sync queued locally:', err);
-    }
+    }, 'Update Journal');
 
     return updatedEntry;
   },
@@ -357,23 +382,19 @@ export const api = {
       localList.filter((j) => j.id !== journalId)
     );
 
-    // Delete subcollection messages & doc in Firestore
-    try {
-      const messagesRef = collection(db, 'users', uid, 'journals', journalId, 'messages');
-      const messagesSnap = await getDocs(messagesRef);
-      for (const msgDoc of messagesSnap.docs) {
-        await deleteDoc(msgDoc.ref).catch(() => {});
-      }
-    } catch (err) {
-      console.warn('Subcollection messages cleanup skipped:', err);
-    }
+    // Delete in background
+    safeFirestoreSync(async () => {
+      try {
+        const messagesRef = collection(db, 'users', uid, 'journals', journalId, 'messages');
+        const messagesSnap = await getDocs(messagesRef);
+        for (const msgDoc of messagesSnap.docs) {
+          await deleteDoc(msgDoc.ref).catch(() => {});
+        }
+      } catch (e) {}
 
-    try {
       const journalRef = doc(db, 'users', uid, 'journals', journalId);
       await deleteDoc(journalRef);
-    } catch (err) {
-      console.warn('Firestore delete sync queued:', err);
-    }
+    }, 'Delete Journal');
   },
 
   // 6. Send message to Gemini for this journal
@@ -394,7 +415,7 @@ export const api = {
 
     let assistantContent = '';
 
-    // Try backend AI route first
+    // Try backend AI route first, gracefully fall back within 4 seconds
     try {
       const history = (journal.messages || []).map((m) => ({
         role: m.role,
@@ -416,13 +437,17 @@ export const api = {
       });
       assistantContent = aiRes.response;
     } catch (err: any) {
-      console.warn('Backend AI chat unavailable, using client fallback:', err);
-      const prompt = `You are a warm, reflective AI journaling partner. 
-Journal Title: "${journal.title}"
-Journal Content: "${journal.content}"
-User's Message: "${content}"
+      console.warn('AI chat falling back to resilient client synthesis:', err?.message || err);
+      const prompt = `You are a supportive, attentive, and wise AI Journal companion.
+Context of Current Journal:
+Title: "${journal.title}"
+Content: "${journal.content}"
+Mood: "${journal.mood}"
+Tags: "${(journal.tags || []).join(', ')}"
 
-Please reply thoughtfully to support the user's reflection.`;
+User Message: "${content}"
+
+Please reply thoughtfully and supportively.`;
       assistantContent = await clientGenerateWithFallback(prompt);
     }
 
@@ -437,14 +462,12 @@ Please reply thoughtfully to support the user's reflection.`;
     const currentMsgs = getLocalMessages(journalId);
     saveLocalMessages(journalId, [...currentMsgs, userMsgData, assistantMsgData]);
 
-    // Save messages in Firestore
-    try {
+    // Save messages in Firestore in background
+    safeFirestoreSync(async () => {
       const messagesRef = collection(db, 'users', uid, 'journals', journalId, 'messages');
       await setDoc(doc(messagesRef, userMsgData.id), sanitizeFirestorePayload(userMsgData));
       await setDoc(doc(messagesRef, assistantMsgData.id), sanitizeFirestorePayload(assistantMsgData));
-    } catch (err) {
-      console.warn('Firestore chat save queued:', err);
-    }
+    }, 'Save Chat Messages');
 
     return { userMessage: userMsgData, assistantMessage: assistantMsgData };
   },
@@ -464,7 +487,7 @@ Please reply thoughtfully to support the user's reflection.`;
       });
       summary = aiRes.summary;
     } catch (err) {
-      console.warn('Backend summarize unavailable, using client fallback:', err);
+      console.warn('Backend summarize falling back to client synthesis:', err);
       const prompt = `Summarize the following journal entry concisely in 2-3 sentences:\nTitle: ${journal.title}\nContent:\n${journal.content}`;
       summary = await clientGenerateWithFallback(prompt);
     }
@@ -488,7 +511,7 @@ Please reply thoughtfully to support the user's reflection.`;
       });
       reflection = aiRes.reflection;
     } catch (err) {
-      console.warn('Backend reflect unavailable, using client fallback:', err);
+      console.warn('Backend reflect falling back to client synthesis:', err);
       const prompt = `Provide a thoughtful psychological and growth-oriented reflection on this journal entry:\nTitle: ${journal.title}\nContent:\n${journal.content}`;
       reflection = await clientGenerateWithFallback(prompt);
     }
@@ -512,7 +535,7 @@ Please reply thoughtfully to support the user's reflection.`;
       });
       brainstorm = aiRes.brainstorm;
     } catch (err) {
-      console.warn('Backend brainstorm unavailable, using client fallback:', err);
+      console.warn('Backend brainstorm falling back to client synthesis:', err);
       const prompt = `Brainstorm 3 actionable next steps or creative perspectives based on this journal entry:\nTitle: ${journal.title}\nContent:\n${journal.content}`;
       brainstorm = await clientGenerateWithFallback(prompt);
     }
@@ -536,7 +559,7 @@ Please reply thoughtfully to support the user's reflection.`;
       });
       keyPoints = aiRes.keyPoints;
     } catch (err) {
-      console.warn('Backend keyPoints unavailable, using client fallback:', err);
+      console.warn('Backend keyPoints falling back to client synthesis:', err);
       const prompt = `Extract 3 to 5 core takeaway bullet points from this journal entry. Respond with each bullet point on a new line starting with '-':\nTitle: ${journal.title}\nContent:\n${journal.content}`;
       const raw = await clientGenerateWithFallback(prompt);
       keyPoints = raw
@@ -568,7 +591,7 @@ Please reply thoughtfully to support the user's reflection.`;
       });
       questions = aiRes.questions;
     } catch (err) {
-      console.warn('Backend questions unavailable, using client fallback:', err);
+      console.warn('Backend questions falling back to client synthesis:', err);
       const prompt = `Generate 3 deep, introspective pondering questions based on this journal entry. Respond with each question on a new line:\nTitle: ${journal.title}\nContent:\n${journal.content}`;
       const raw = await clientGenerateWithFallback(prompt);
       questions = raw
@@ -632,7 +655,7 @@ Please reply thoughtfully to support the user's reflection.`;
         referencedJournals,
       };
     } catch (err: any) {
-      console.warn('Backend ask-archive unavailable, running client synthesis:', err);
+      console.warn('Backend ask-archive falling back to client synthesis:', err);
       const clientRes = await clientAskArchive(queryText, journalsData);
       const referencedJournals = (clientRes.referencedIds || [])
         .map((id) => {
@@ -679,16 +702,13 @@ Please reply thoughtfully to support the user's reflection.`;
     const entryDates = new Set<string>();
 
     journals.forEach((j) => {
-      // Word count
       const words = j.content.trim().split(/\s+/).filter(Boolean).length;
       wordsWritten += words;
 
-      // Mood count
       if (j.mood && moodBreakdown[j.mood] !== undefined) {
         moodBreakdown[j.mood] = (moodBreakdown[j.mood] || 0) + 1;
       }
 
-      // Tags count
       if (Array.isArray(j.tags)) {
         j.tags.forEach((t) => {
           const cleanTag = t.trim().toLowerCase();
@@ -698,7 +718,6 @@ Please reply thoughtfully to support the user's reflection.`;
         });
       }
 
-      // Date calculations
       const entryDate = new Date(j.createdAt);
       if (!isNaN(entryDate.getTime())) {
         if (entryDate >= oneWeekAgo) {
@@ -708,7 +727,6 @@ Please reply thoughtfully to support the user's reflection.`;
       }
     });
 
-    // Calculate streak
     let streak = 0;
     const checkDate = new Date();
     while (true) {
@@ -765,7 +783,7 @@ Please reply thoughtfully to support the user's reflection.`;
         body: JSON.stringify({ entries: recent }),
       });
     } catch (err) {
-      console.warn('Backend weekly reflection unavailable, using fallback:', err);
+      console.warn('Backend weekly reflection falling back:', err);
       return {
         timeframe: 'Past 7 Days',
         summary: 'This week was characterized by active personal reflection, steady focus, and documented achievements.',
@@ -798,7 +816,7 @@ Please reply thoughtfully to support the user's reflection.`;
         body: JSON.stringify({ entries: recent }),
       });
     } catch (err) {
-      console.warn('Backend monthly reflection unavailable, using fallback:', err);
+      console.warn('Backend monthly reflection falling back:', err);
       return {
         timeframe: 'Past 30 Days',
         summary: 'Over the past month, you developed a dependable rhythm of capturing thoughts, reflecting on milestones, and making mindful decisions.',

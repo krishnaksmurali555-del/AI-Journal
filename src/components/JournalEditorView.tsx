@@ -126,6 +126,15 @@ export const JournalEditorView: React.FC<JournalEditorViewProps> = ({
     setSaveStatus('unsaved');
   };
 
+  // Debounced auto-save when user pauses typing
+  useEffect(() => {
+    if (saveStatus !== 'unsaved' || !journal) return;
+    const timer = setTimeout(() => {
+      handleSave();
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [title, content, mood, tags, favorite, saveStatus, journal]);
+
   // Manual or Triggered Save
   const handleSave = async () => {
     if (!journal) return;
