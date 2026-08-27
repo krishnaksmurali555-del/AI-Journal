@@ -1,0 +1,8 @@
+{
+  "name": "AI Journal",
+  "description": "Private, user-isolated AI-powered journal with Gemini conversations, periodic reflections, and Cloud Firestore security rules.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

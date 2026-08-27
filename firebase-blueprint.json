@@ -1,0 +1,63 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email", "description": "User email address" },
+        "displayName": { "type": "string", "description": "User display name" },
+        "photoURL": { "type": "string", "description": "User avatar URL" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
+      },
+      "required": ["email"]
+    },
+    "Journal": {
+      "title": "Journal",
+      "description": "Private user journal entry",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner user ID" },
+        "title": { "type": "string", "description": "Title of the journal entry", "maxLength": 300 },
+        "content": { "type": "string", "description": "Main body text of the journal", "maxLength": 100000 },
+        "mood": { "type": "string", "description": "Selected mood identifier", "maxLength": 50 },
+        "tags": { "type": "array", "description": "List of categorical tags" },
+        "favorite": { "type": "boolean", "description": "Whether the entry is favorited" },
+        "summary": { "type": "string", "description": "AI-generated summary" },
+        "reflection": { "type": "string", "description": "AI-generated reflection" },
+        "brainstorm": { "type": "string", "description": "AI-generated brainstorm ideas" },
+        "keyPoints": { "type": "array", "description": "AI-extracted key takeaways" },
+        "questions": { "type": "array", "description": "AI-generated self-inquiry questions" },
+        "wordCount": { "type": "number", "description": "Word count of content" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation ISO timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Update ISO timestamp" }
+      },
+      "required": ["userId", "title", "createdAt", "updatedAt"]
+    },
+    "JournalMessage": {
+      "title": "JournalMessage",
+      "description": "Interactive AI dialogue message tied to a specific journal entry",
+      "type": "object",
+      "properties": {
+        "role": { "type": "string", "enum": ["user", "assistant"], "description": "Sender role" },
+        "content": { "type": "string", "description": "Message textual content", "maxLength": 20000 },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Message timestamp" }
+      },
+      "required": ["role", "content", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User document root"
+    },
+    "/users/{userId}/journals/{journalId}": {
+      "schema": "Journal",
+      "description": "Isolated journal entries belonging to the user"
+    },
+    "/users/{userId}/journals/{journalId}/messages/{messageId}": {
+      "schema": "JournalMessage",
+      "description": "Multi-turn Gemini chat messages contextualized to a journal entry"
+    }
+  }
+}
