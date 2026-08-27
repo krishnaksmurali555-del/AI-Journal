@@ -14,13 +14,20 @@ const hasViteEnv = Boolean(import.meta.env.VITE_FIREBASE_API_KEY || import.meta.
 
 export const configSource = hasViteEnv ? 'VITE_ENVIRONMENT_VARIABLES' : 'FIREBASE_APPLET_CONFIG_JSON';
 
+const resolvedApiKey = import.meta.env.VITE_FIREBASE_API_KEY || rawFirebaseConfig.apiKey || 'AIzaSyPlaceholderKeyForBuildSafetyOnly';
+
+export const isApiKeyConfigured = Boolean(
+  (import.meta.env.VITE_FIREBASE_API_KEY && import.meta.env.VITE_FIREBASE_API_KEY !== 'AIzaSyPlaceholderKeyForBuildSafetyOnly') ||
+  (rawFirebaseConfig.apiKey && rawFirebaseConfig.apiKey.length > 5)
+);
+
 export const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || rawFirebaseConfig.apiKey,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || rawFirebaseConfig.authDomain,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || rawFirebaseConfig.projectId,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || rawFirebaseConfig.storageBucket,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || rawFirebaseConfig.messagingSenderId,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || rawFirebaseConfig.appId,
+  apiKey: resolvedApiKey,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || rawFirebaseConfig.authDomain || 'ai-journal-c2e5f.firebaseapp.com',
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || rawFirebaseConfig.projectId || 'ai-journal-c2e5f',
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || rawFirebaseConfig.storageBucket || 'ai-journal-c2e5f.firebasestorage.app',
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || rawFirebaseConfig.messagingSenderId || '',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || rawFirebaseConfig.appId || '1:ai-journal-c2e5f:web:app',
 };
 
 if (typeof window !== 'undefined') {

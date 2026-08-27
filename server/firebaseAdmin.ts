@@ -12,7 +12,7 @@ export function getFirebaseAdmin() {
     if (admin.apps.length > 0) {
       adminApp = admin.apps[0]!;
     } else {
-      const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || rawFirebaseConfig.projectId || 'gen-lang-client-0057553427';
+      const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || rawFirebaseConfig.projectId || 'ai-journal-c2e5f';
       const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
       const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
 

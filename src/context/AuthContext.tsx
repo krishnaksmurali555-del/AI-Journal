@@ -3,6 +3,7 @@ import {
   User, 
   auth, 
   firebaseConfig,
+  isApiKeyConfigured,
   googleProvider, 
   signInWithPopup, 
   signOut, 
@@ -43,10 +44,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       setError(null);
       setLoading(true);
+
+      if (!isApiKeyConfigured && (!firebaseConfig.apiKey || firebaseConfig.apiKey === 'AIzaSyPlaceholderKeyForBuildSafetyOnly')) {
+        setError(
+          `Firebase Web API Key is missing. In Vercel Project Settings -> Environment Variables, add "VITE_FIREBASE_API_KEY" with your Web API Key from Firebase project "${firebaseConfig.projectId}".`
+        );
+        return;
+      }
+
       await signInWithPopup(auth, googleProvider);
     } catch (err: any) {
       console.error('Google Sign-In failed:', err);
-      if (err.code === 'auth/popup-blocked') {
+      if (err.code === 'auth/invalid-api-key') {
+        setError(
+          `Invalid Firebase API Key. Please provide your Web App API key in Vercel environment variables as "VITE_FIREBASE_API_KEY" (from Firebase Console -> Project Settings -> General -> Your Apps for "${firebaseConfig.projectId}").`
+        );
+      } else if (err.code === 'auth/popup-blocked') {
         setError('Sign-in popup was blocked by browser. Please allow popups for this site and try again.');
       } else if (err.code === 'auth/cancelled-popup-request' || err.code === 'auth/popup-closed-by-user') {
         setError('Sign-in cancelled.');
