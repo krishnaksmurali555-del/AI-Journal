@@ -79,22 +79,36 @@ gcloud secrets add-iam-policy-binding GEMINI_API_KEY \
 
 ---
 
-## 🚀 4. Google Cloud Run Deployment
+## 🚀 4. Vercel Deployment
 
-Deploy the application container to Google Cloud Run with the required campaign label:
+The application is deployed and hosted on **Vercel**.
 
-```bash
-# Build and deploy service
-gcloud run deploy ai-journal \
-  --source . \
-  --platform managed \
-  --region asia-southeast1 \
-  --allow-unauthenticated \
-  --set-secrets="GEMINI_API_KEY=GEMINI_API_KEY:latest" \
-  --update-labels=dev-tutorial=cloud-run-ai-challenge
+### 🌐 Live Application
+
+**Production URL:**
+https://ai-journal-gules.vercel.app/
+
+### Vercel Deployment
+
+The project is connected to GitHub and automatically deployed through Vercel whenever changes are pushed to the repository.
+
+```text
+GitHub Repository
+       ↓
+     Vercel
+       ↓
+Production Deployment
+       ↓
+AI Journal
 ```
 
----
+### Deployment URLs
+
+* **Production:** https://ai-journal-gules.vercel.app/
+* **Vercel Project:** https://vercel.com/krishnaksmurali555-2976s-projects/ai-journal/2NdbcftTdjcu1NvunvyPeXD5GgXr
+
+Environment variables and production secrets are configured through the Vercel project settings.
+
 
 ## 🧪 5. Functional Walkthrough & Test Verification Checklist
 
